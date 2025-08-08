@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Add your upgrades and play own game</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+    input, button { margin: 5px; }
+    .upgrade, .shop-item { background: #fff; padding: 10px; margin: 5px 0; border: 1px solid #ccc; }
+    textarea { width: 100%; height: 100px; margin-top: 10px; }
+    h2 { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Game tho</h1>
+
+  <!-- ''Upgrader'' -->
+  <h2>Upgrader</h2>
+  <div>
+    <input id="name" placeholder="Name">
+    <input id="baseCost" type="number" placeholder="Base Cost">
+    <input id="costMult" type="number" placeholder="Cost multi">
+    <input id="effect" type="number" placeholder="Effect (x grow)">
+    <button onclick="addUpgrade()">Add upgrade</button>
+  </div>
+
+  <div id="list"></div>
+
+  <h3>JSON export</h3>
+  <textarea id="jsonOutput" readonly></textarea>
+
+  <!-- Game -->
+  <h2>Game</h2>
+  <div>
+    <button onclick="grow()">grow +</button>
+    <div id="resource">grow: 0</div>
+  </div>
+
+  <h3>Upgrades i guess</h3>
+  <div id="shop"></div>
+
+  <script>
+    let upgrades = JSON.parse(localStorage.getItem('upgrades') || '[]');
+    let resource = 0;
+
+    function save() {
+      localStorage.setItem('upgrades', JSON.stringify(upgrades));
+      document.getElementById('jsonOutput').value = JSON.stringify(upgrades, null, 2);
+    }
+
+    function addUpgrade() {
+      const name = document.getElementById('name').value;
+      const baseCost = +document.getElementById('baseCost').value;
+      const costMult = +document.getElementById('costMult').value;
+      const effect = +document.getElementById('effect').value;
+      upgrades.push({ name, baseCost, costMult, effect, level: 0 });
+      renderEditor();
+      updateUI();
+    }
+
+    function editUpgrade(i) {
+      const upg = upgrades[i];
+      document.getElementById('name').value = upg.name;
+      document.getElementById('baseCost').value = upg.baseCost;
+      document.getElementById('costMult').value = upg.costMult;
+      document.getElementById('effect').value = upg.effect;
+      upgrades.splice(i, 1);
+      renderEditor();
+      updateUI();
+    }
+
+    function deleteUpgrade(i) {
+      upgrades.splice(i, 1);
+      renderEditor();
+      updateUI();
+    }
+
+    function renderEditor() {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      upgrades.forEach((upg, i) => {
+        const div = document.createElement('div');
+        div.className = 'upgrade';
+        div.innerHTML = `
+          <b>${upg.name}</b><br>
+          Стоимость: ${upg.baseCost}, Multi: ${upg.costMult}, Effect: x${upg.effect}<br>
+          Level: ${upg.level}<br>
+          <button onclick="editUpgrade(${i})">Change</button>
+          <button onclick="deleteUpgrade(${i})">GET OUT THIS</button>
+        `;
+        list.appendChild(div);
+      });
+      save();
+    }
+
+    function getUpgradeCost(upg) {
+      return Math.floor(upg.baseCost * Math.pow(upg.costMult, upg.level));
+    }
+
+    function buyUpgrade(i) {
+      const upg = upgrades[i];
+      const cost = getUpgradeCost(upg);
+      if (resource >= cost) {
+        resource -= cost;
+        upg.level++;
+        updateUI();
+      }
+    }
+
+    function getGrowthRate() {
+      let rate = 1;
+      upgrades.forEach(upg => {
+        rate *= Math.pow(upg.effect, upg.level);
+      });
+      return rate;
+    }
+
+    function grow() {
+      resource += getGrowthRate();
+      updateUI();
+    }
+
+    function renderShop() {
+      const shop = document.getElementById('shop');
+      shop.innerHTML = '';
+      upgrades.forEach((upg, i) => {
+        const cost = getUpgradeCost(upg);
+        const div = document.createElement('div');
+        div.className = 'shop-item';
+        div.innerHTML = `
+          <b>${upg.name}</b> (x${upg.effect})<br>
+          Уровень: ${upg.level}, Cost: ${cost}<br>
+          <button onclick="buyUpgrade(${i})">Buy</button>
+        `;
+        shop.appendChild(div);
+      });
+    }
+
+    function updateUI() {
+      document.getElementById('resource').textContent = `Gain: ${Math.floor(resource)}`;
+      renderShop();
+      renderEditor();
+    }
+
+    updateUI();
+  </script>
+</body>
+</html>
