@@ -1,150 +1,270 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Add your upgrades and play own game</title>
-  <style>
-    body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
-    input, button { margin: 5px; }
-    .upgrade, .shop-item { background: #fff; padding: 10px; margin: 5px 0; border: 1px solid #ccc; }
-    textarea { width: 100%; height: 100px; margin-top: 10px; }
-    h2 { margin-top: 40px; }
-  </style>
-</head>
-<body>
-  <h1>🧪 Game tho</h1>
+import pygame
+import math
 
-  <!-- ''Upgrader'' -->
-  <h2>Upgrader</h2>
-  <div>
-    <input id="name" placeholder="Name">
-    <input id="baseCost" type="number" placeholder="Base Cost">
-    <input id="costMult" type="number" placeholder="Cost multi">
-    <input id="effect" type="number" placeholder="Effect (x grow)">
-    <button onclick="addUpgrade()">Add upgrade</button>
-  </div>
+# --- Initialization ---
+pygame.init()
 
-  <div id="list"></div>
+# --- Constants ---
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
+FPS = 60
 
-  <h3>JSON export</h3>
-  <textarea id="jsonOutput" readonly></textarea>
+# --- Colors (R, G, B) #
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+GRAY = (100, 100, 100)
+DARK_GRAY = (50, 50, 50)
+GREEN = (0, 200, 0)
+LIGHT_GREEN = (100, 255, 100)
+GOLD = (255, 215, 0)
+RED = (200, 0, 0)
+BLUE = (0, 100, 200)
 
-  <!-- Game -->
-  <h2>Game</h2>
-  <div>
-    <button onclick="grow()">grow +</button>
-    <div id="resource">grow: 0</div>
-  </div>
+# --- Helper Functions ---
+def format_number(n):
+    """Formats large numbers into K, M, B, T etc."""
+    if n < 1000:
+        return f"{n:.2f}"
+    elif n < 1000000:
+        return f"{n/1000:.2f}K"
+    elif n < 1000000000:
+        return f"{n/1000000:.2f}M"
+    elif n < 1000000000000:
+        return f"{n/1000000000:.2f}B"
+    else:
+        return f"{n/1000000000000:.2f}T"
 
-  <h3>Upgrades i guess</h3>
-  <div id="shop"></div>
+def draw_text(surface, text, pos, color, size, center=False):
+    """A simple function to draw text on the screen."""
+    font = pygame.font.Font(None, size)
+    text_surface = font.render(text, True, color)
+    text_rect = text_surface.get_rect()
+    if center:
+        text_rect.center = pos
+    else:
+        text_rect.topleft = pos
+    surface.blit(text_surface, text_rect)
 
-  <script>
-    let upgrades = JSON.parse(localStorage.getItem('upgrades') || '[]');
-    let resource = 0;
+# --- Upgrade Class ---
+class Upgrade:
+    def __init__(self, name, base_cost, cost_multiplier, effect_value, description, pos, prerequisites=None, max_level=100):
+        self.name = name
+        self.base_cost = base_cost
+        self.cost_multiplier = cost_multiplier
+        self.level = 0
+        self.effect_value = effect_value # e.g., +1 point per click, or +0.5 points per second
+        self.description = description
+        self.pos = pos # (x, y) for the button's center
+        self.prerequisites = prerequisites if prerequisites else {} # e.g., {"Better Click": 5}
+        self.max_level = max_level
+        self.unlocked = True if not self.prerequisites else False
+        self.button_rect = pygame.Rect(pos[0] - 75, pos[1] - 30, 150, 60)
 
-    function save() {
-      localStorage.setItem('upgrades', JSON.stringify(upgrades));
-      document.getElementById('jsonOutput').value = JSON.stringify(upgrades, null, 2);
-    }
+    def get_cost(self):
+        """Calculates the cost for the next level."""
+        if self.level >= self.max_level:
+            return math.inf
+        return self.base_cost * (self.cost_multiplier ** self.level)
 
-    function addUpgrade() {
-      const name = document.getElementById('name').value;
-      const baseCost = +document.getElementById('baseCost').value;
-      const costMult = +document.getElementById('costMult').value;
-      const effect = +document.getElementById('effect').value;
-      upgrades.push({ name, baseCost, costMult, effect, level: 0 });
-      renderEditor();
-      updateUI();
-    }
+    def can_afford(self, points):
+        """Checks if the player has enough points for the next level."""
+        return points >= self.get_cost()
 
-    function editUpgrade(i) {
-      const upg = upgrades[i];
-      document.getElementById('name').value = upg.name;
-      document.getElementById('baseCost').value = upg.baseCost;
-      document.getElementById('costMult').value = upg.costMult;
-      document.getElementById('effect').value = upg.effect;
-      upgrades.splice(i, 1);
-      renderEditor();
-      updateUI();
-    }
+    def buy(self):
+        """Levels up the upgrade."""
+        if self.level < self.max_level:
+            self.level += 1
 
-    function deleteUpgrade(i) {
-      upgrades.splice(i, 1);
-      renderEditor();
-      updateUI();
-    }
+    def check_unlock(self, upgrades):
+        """Checks if prerequisites are met to unlock this upgrade."""
+        if self.unlocked:
+            return
+        all_prereqs_met = True
+        for prereq_name, prereq_level in self.prerequisites.items():
+            if upgrades[prereq_name].level < prereq_level:
+                all_prereqs_met = False
+                break
+        if all_prereqs_met:
+            self.unlocked = True
 
-    function renderEditor() {
-      const list = document.getElementById('list');
-      list.innerHTML = '';
-      upgrades.forEach((upg, i) => {
-        const div = document.createElement('div');
-        div.className = 'upgrade';
-        div.innerHTML = `
-          <b>${upg.name}</b><br>
-          Cost: ${upg.baseCost}, Multi: ${upg.costMult}, Effect: x${upg.effect}<br>
-          Level: ${upg.level}<br>
-          <button onclick="editUpgrade(${i})">Change</button>
-          <button onclick="deleteUpgrade(${i})">GET OUT THIS</button>
-        `;
-        list.appendChild(div);
-      });
-      save();
-    }
+    def draw(self, surface, points):
+        """Draws the upgrade button and its info."""
+        # Determine button color
+        color = GRAY
+        text_color = WHITE
+        if not self.unlocked:
+            color = DARK_GRAY
+            text_color = GRAY
+        elif self.level >= self.max_level:
+            color = GOLD
+            text_color = BLACK
+        elif self.can_afford(points):
+            color = GREEN
+            text_color = BLACK
 
-    function getUpgradeCost(upg) {
-      return Math.floor(upg.baseCost * Math.pow(upg.costMult, upg.level));
-    }
+        # Draw button
+        pygame.draw.rect(surface, color, self.button_rect, border_radius=10)
+        pygame.draw.rect(surface, WHITE, self.button_rect, 2, border_radius=10)
 
-    function buyUpgrade(i) {
-      const upg = upgrades[i];
-      const cost = getUpgradeCost(upg);
-      if (resource >= cost) {
-        resource -= cost;
-        upg.level++;
-        updateUI();
-      }
-    }
-
-    function getGrowthRate() {
-      let rate = 1;
-      upgrades.forEach(upg => {
-        rate *= Math.pow(upg.effect, upg.level);
-      });
-      return rate;
-    }
-
-    function grow() {
-      resource += getGrowthRate();
-      updateUI();
-    }
-
-    function renderShop() {
-      const shop = document.getElementById('shop');
-      shop.innerHTML = '';
-      upgrades.forEach((upg, i) => {
-        const cost = getUpgradeCost(upg);
-        const div = document.createElement('div');
-        div.className = 'shop-item';
-        div.innerHTML = `
-          <b>${upg.name}</b> (x${upg.effect})<br>
-          Level: ${upg.level}, Cost: ${cost}<br>
-          <button onclick="buyUpgrade(${i})">Buy</button>
-        `;
-        shop.appendChild(div);
-      });
-    }
-
-    function updateUI() {
-      document.getElementById('resource').textContent = `Gain: ${Math.floor(resource)}`;
-      renderShop();
-      renderEditor();
-    }
-
-    updateUI();
-  </script>
-</body>
-</html>
+        # Draw text
+        draw_text(surface, self.name, (self.pos[0], self.pos[1] - 10), text_color, 20, center=True)
+        if self.level < self.max_level:
+            draw_text(surface, f"Cost: {format_number(self.get_cost())}", (self.pos[0], self.pos[1] + 10), text_color, 16, center=True)
+        else:
+            draw_text(surface, "MAXED", (self.pos[0], self.pos[1] + 10), text_color, 16, center=True)
+        
+        # Draw level counter
+        level_text = f"Lv.{self.level}"
+        if self.prerequisites:
+             req_text = ", ".join([f"{k}:{v}" for k, v in self.prerequisites.items()])
+             draw_text(surface, req_text, (self.pos[0] + 80, self.pos[1] - 25), RED, 14)
+        draw_text(surface, level_text, (self.pos[0] - 80, self.pos[1] - 25), WHITE, 14)
 
 
+# --- Game Class ---
+class Game:
+    def __init__(self):
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Upgrade Tree to 1 Billion")
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.game_won = False
+
+        # Game Stats
+        self.points = 0.0
+        self.points_per_click = 1.0
+        self.points_per_second = 0.0
+        self.global_multiplier = 1.0
+
+        # Main Click Button
+        self.click_button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, 500, 200, 100)
+
+        # Define Upgrades and their positions in the tree
+        self.upgrades = {
+            "Better Click": Upgrade("Better Click", 10, 1.15, 1, "+1 Point/Click", (200, 200)),
+            "Mega Click": Upgrade("Mega Click", 500, 1.20, 10, "+10 Points/Click", (200, 350), prerequisites={"Better Click": 5}),
+            
+            "Auto Clicker": Upgrade("Auto Clicker", 50, 1.14, 0.5, "+0.5 Points/Second", (800, 200)),
+            "Click Farm": Upgrade("Click Farm", 2000, 1.18, 5, "+5 Points/Second", (800, 350), prerequisites={"Auto Clicker": 10}),
+
+            "Efficiency": Upgrade("Efficiency", 1500, 1.25, 0.1, "x1.1 All Income", (500, 275), prerequisites={"Better Click": 3, "Auto Clicker": 3}),
+        }
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            if event.type == pygame.MOUSEBUTTONDOWN and not self.game_won:
+                mouse_pos = pygame.mouse.get_pos()
+
+                # Check for main click button
+                if self.click_button_rect.collidepoint(mouse_pos):
+                    self.points += self.points_per_click * self.global_multiplier
+
+                # Check for upgrade buttons
+                for upgrade in self.upgrades.values():
+                    if upgrade.button_rect.collidepoint(mouse_pos):
+                        if upgrade.unlocked and upgrade.can_afford(self.points):
+                            cost = upgrade.get_cost()
+                            self.points -= cost
+                            upgrade.buy()
+                            self.apply_upgrade_effects(upgrade)
+
+    def apply_upgrade_effects(self, upgrade):
+        """Applies the effect of a purchased upgrade."""
+        # This is where you define what each upgrade does.
+        # We recalculate everything from scratch for simplicity.
+        
+        # Base values
+        self.points_per_click = 1.0
+        self.points_per_second = 0.0
+        self.global_multiplier = 1.0
+
+        # Recalculate based on all upgrade levels
+        self.points_per_click += self.upgrades["Better Click"].level * self.upgrades["Better Click"].effect_value
+        self.points_per_click += self.upgrades["Mega Click"].level * self.upgrades["Mega Click"].effect_value
+        
+        self.points_per_second += self.upgrades["Auto Clicker"].level * self.upgrades["Auto Clicker"].effect_value
+        self.points_per_second += self.upgrades["Click Farm"].level * self.upgrades["Click Farm"].effect_value
+
+        self.global_multiplier *= (1.1 ** self.upgrades["Efficiency"].level)
+
+    def update(self, dt):
+        """Updates game state over time."""
+        if not self.game_won:
+            # Add passive income
+            self.points += self.points_per_second * self.global_multiplier * dt
+
+            # Check for new unlocks
+            for upgrade in self.upgrades.values():
+                upgrade.check_unlock(self.upgrades)
+
+            # Check for win condition
+            if self.points >= 1_000_000_000:
+                self.game_won = True
+
+    def draw_tree_lines(self):
+        """Draws lines connecting upgrades in the tree."""
+        lines_to_draw = [
+            ("Better Click", "Mega Click"),
+            ("Auto Clicker", "Click Farm"),
+            ("Better Click", "Efficiency"),
+            ("Auto Clicker", "Efficiency"),
+        ]
+        for start_name, end_name in lines_to_draw:
+            start_pos = self.upgrades[start_name].pos
+            end_pos = self.upgrades[end_name].pos
+            # Draw a thicker, more visible line
+            pygame.draw.line(self.screen, GRAY, start_pos, end_pos, 3)
+
+
+    def draw(self):
+        """Draws everything to the screen."""
+        self.screen.fill(BLACK)
+
+        # Draw Title
+        draw_text(self.screen, "Upgrade Tree to 1 Billion", (SCREEN_WIDTH // 2, 30), WHITE, 40, center=True)
+
+        # Draw Stats
+        draw_text(self.screen, f"Points: {format_number(self.points)}", (20, 80), WHITE, 32)
+        draw_text(self.screen, f"Per Click: {format_number(self.points_per_click * self.global_multiplier)}", (20, 120), GOLD, 24)
+        draw_text(self.screen, f"Per Second: {format_number(self.points_per_second * self.global_multiplier)}", (20, 150), GOLD, 24)
+        draw_text(self.screen, f"Multiplier: x{format_number(self.global_multiplier)}", (20, 180), GOLD, 24)
+
+        # Draw Tree Lines
+        self.draw_tree_lines()
+
+        # Draw Upgrades
+        for upgrade in self.upgrades.values():
+            upgrade.draw(self.screen, self.points)
+
+        # Draw Main Click Button
+        pygame.draw.rect(self.screen, BLUE, self.click_button_rect, border_radius=15)
+        pygame.draw.rect(self.screen, WHITE, self.click_button_rect, 3, border_radius=15)
+        draw_text(self.screen, "CLICK ME!", (SCREEN_WIDTH // 2, 550), WHITE, 36, center=True)
+
+        # Draw Win Message
+        if self.game_won:
+            win_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            win_surface.set_alpha(200)
+            win_surface.fill(BLACK)
+            self.screen.blit(win_surface, (0,0))
+            draw_text(self.screen, "YOU WIN!", (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50), GOLD, 80, center=True)
+            draw_text(self.screen, f"You reached 1 Billion Points!", (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20), WHITE, 40, center=True)
+
+        pygame.display.flip()
+
+    def run(self):
+        """The main game loop."""
+        while self.running:
+            dt = self.clock.tick(FPS) / 1000.0  # Delta time in seconds
+            self.handle_events()
+            self.update(dt)
+            self.draw()
+        
+        pygame.quit()
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    game = Game()
+    game.run()
